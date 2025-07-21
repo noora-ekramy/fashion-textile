@@ -10,7 +10,7 @@ st.set_page_config(
 # Main app
 def main():
     st.title("Hello World - Fashion Textile App")
-    st.write("Welcome to the Fashion Textile Streamlit application!")
+    st.write("Welcome to the Fashion Textile Streamlit application!!!!!")
     
 if __name__ == "__main__":
     main() 
