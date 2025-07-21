@@ -1,11 +1,182 @@
 import streamlit as st
 import pandas as pd
 import os
+import time
+from openai import OpenAI
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+def upload_files_to_openai():
+    """Upload CSV files to OpenAI and create assistant with code interpreter"""
+    try:
+        # Get API key from environment or Streamlit secrets
+        api_key = os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")
+        if not api_key:
+            st.error("OpenAI API key not found. Please add it to your .env file or Streamlit secrets.")
+            return None, []
+        
+        client = OpenAI(api_key=api_key)
+        
+        file_ids = []
+        csv_files = ["accounts.csv", "invoices.csv", "bills.csv", "expenses.csv"]
+        
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        # Upload files
+        for i, filename in enumerate(csv_files):
+            filepath = os.path.join("anonymized_data", filename)
+            if os.path.exists(filepath):
+                status_text.text(f"Uploading {filename}...")
+                
+                with open(filepath, "rb") as file:
+                    uploaded_file = client.files.create(
+                        file=file,
+                        purpose="assistants"
+                    )
+                    file_ids.append(uploaded_file.id)
+                
+                progress_bar.progress((i + 1) / len(csv_files))
+        
+        # Create assistant with code interpreter
+        status_text.text("Creating AI assistant with code interpreter...")
+        assistant = client.beta.assistants.create(
+            name="Fashion Textile Data Analyst",
+            instructions="""You are a data analyst for a fashion textile business. You have access to CSV files containing:
+            - accounts.csv: Chart of accounts with balances and account types
+            - invoices.csv: Customer invoices with amounts and dates
+            - bills.csv: Vendor bills and payments
+            - expenses.csv: Business expenses and categorization
+            
+            When asked questions, analyze the data using Python code and provide insights. Always write and execute code to answer questions accurately with real calculations.""",
+            tools=[{"type": "code_interpreter"}],
+            tool_resources={
+                "code_interpreter": {
+                    "file_ids": file_ids
+                }
+            },
+            model="gpt-4o"
+        )
+        
+        status_text.text("Assistant created successfully!")
+        return assistant.id, file_ids
+        
+    except Exception as e:
+        st.error(f"Error uploading files: {str(e)}")
+        return None, []
+
+def analysis_stream(text, placeholder):
+    """Analysis function using OpenAI Assistants API with code interpreter"""
+    try:
+        # Check if assistant is created
+        if "openai_assistant_id" not in st.session_state or not st.session_state.openai_assistant_id:
+            placeholder.error("Please start a session first to create the assistant.")
+            return
+        
+        # Get API key
+        api_key = os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")
+        if not api_key:
+            placeholder.error("OpenAI API key not found.")
+            return
+        
+        client = OpenAI(api_key=api_key)
+        
+        placeholder.info("Analyzing your data with code interpreter...")
+        
+        # Create a thread for the conversation
+        thread = client.beta.threads.create()
+        
+        # Add user message to thread
+        message = client.beta.threads.messages.create(
+            thread_id=thread.id,
+            role="user",
+            content=text
+        )
+        
+        # Create and stream the run
+        response_text = ""
+        with client.beta.threads.runs.stream(
+            thread_id=thread.id,
+            assistant_id=st.session_state.openai_assistant_id,
+        ) as stream:
+            for event in stream:
+                # Only handle text streaming, skip code display
+                if event.event == 'thread.message.delta':
+                    delta = event.data.delta
+                    if delta.content:
+                        for content in delta.content:
+                            if content.type == 'text' and content.text:
+                                if content.text.value:
+                                    response_text += content.text.value
+                                    # Show streaming text with cursor
+                                    placeholder.markdown(response_text + "▌")
+        
+        # Final response without cursor
+        if response_text:
+            placeholder.markdown(response_text)
+        else:
+            placeholder.success("Analysis completed!")
+        
+    except Exception as e:
+        placeholder.error(f"Error analyzing text: {str(e)}")
+        st.error(f"Full error details: {e}")
 
 def analysis(text):
-    """Analysis function - TODO: Add actual analysis logic"""
-    # TODO: Implement actual analysis functionality
-    return "thinking..." + text
+    """Non-streaming analysis function for backward compatibility"""
+    try:
+        # Check if files are uploaded
+        if "openai_file_ids" not in st.session_state or not st.session_state.openai_file_ids:
+            return "Please start a session first to upload files to OpenAI."
+        
+        # Get API key
+        api_key = os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")
+        if not api_key:
+            return "OpenAI API key not found."
+        
+        client = OpenAI(api_key=api_key)
+        
+        # Create a response using the uploaded files
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are an AI assistant analyzing accounting data for a fashion textile business. The user has uploaded CSV files containing accounts, customers, invoices, services, vendors, bills, and expenses data. Provide helpful insights and analysis based on their questions."
+                },
+                {
+                    "role": "user",
+                    "content": text
+                }
+            ],
+            temperature=0.7,
+            max_tokens=1000
+        )
+        
+        return response.choices[0].message.content
+        
+    except Exception as e:
+        return f"Error analyzing text: {str(e)}"
+
+def start_session():
+    """Start Session function - Upload files to OpenAI and create assistant"""
+    try:
+        st.session_state.session_active = True
+        
+        # Upload files to OpenAI and create assistant
+        with st.spinner("Uploading files and creating AI assistant..."):
+            assistant_id, file_ids = upload_files_to_openai()
+            
+        if assistant_id and file_ids:
+            st.session_state.openai_assistant_id = assistant_id
+            st.session_state.openai_file_ids = file_ids
+            return f"Session started successfully! Created AI assistant with {len(file_ids)} files for code interpreter analysis."
+        else:
+            return "Session started but failed to create assistant or upload files."
+            
+    except Exception as e:
+        return f"Error starting session: {str(e)}"
 
 @st.cache_data
 def load_csv_data(filename):
@@ -66,19 +237,53 @@ if page == "Home":
     st.markdown("---")
     st.write("Welcome to your comprehensive accounting system for fashion and textile business.")
     
+    # Session Management
+    st.subheader("Session Management")
+    
+    # Initialize session state
+    if "session_active" not in st.session_state:
+        st.session_state.session_active = False
+    
+    # Start Session button
+    if not st.session_state.session_active:
+        if st.button("Start Session", type="primary"):
+            result = start_session()
+            st.success(result)
+            st.rerun()
+    else:
+        st.success("✅ Session is active")
+        if st.button("End Session", type="secondary"):
+            st.session_state.session_active = False
+            st.info("Session ended")
+            st.rerun()
+    
+    st.markdown("---")
+    
     # Analysis Tool
     st.subheader("Analysis Tool")
     
-    # Text input
-    user_input = st.text_area("Enter text for analysis:", placeholder="Type your text here...")
-    
-    # Analyze button
-    if st.button("Analyze"):
-        if user_input:
-            result = analysis(user_input)
-            st.write("Result:", result)
-        else:
-            st.warning("Please enter some text to analyze.")
+    # Check if session is active before allowing analysis
+    if st.session_state.session_active:
+        # Text input
+        user_input = st.text_area("Enter text for analysis:", placeholder="Type your text here...")
+        
+        # Analyze button
+        if st.button("Analyze"):
+            if user_input:
+                st.write("**Result:**")
+                
+                # Create placeholder for streaming response
+                response_placeholder = st.empty()
+                response_placeholder.info("🤔 Thinking...")
+                
+                # Stream the analysis response
+                analysis_stream(user_input, response_placeholder)
+            else:
+                st.warning("Please enter some text to analyze.")
+    else:
+        st.warning("Please start a session to use the analysis tool.")
+        st.text_area("Enter text for analysis:", placeholder="Type your text here...", disabled=True)
+        st.button("Analyze", disabled=True)
     
     st.markdown("---")
     

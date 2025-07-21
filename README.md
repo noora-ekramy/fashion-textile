@@ -16,6 +16,7 @@ A modern web application built with Streamlit for fashion and textile industry t
 
 - Python 3.8 or higher
 - pip
+- OpenAI API key
 
 ### Installation
 
@@ -30,12 +31,18 @@ cd fashion-textile
 pip install -r requirements.txt
 ```
 
-3. Start the application:
+3. Set up your OpenAI API key:
+```bash
+# Create a .env file in the project root
+echo "OPENAI_API_KEY=your_actual_api_key_here" > .env
+```
+
+4. Start the application:
 ```bash
 streamlit run app.py
 ```
 
-4. Open your browser and navigate to `http://localhost:8501`
+5. Open your browser and navigate to `http://localhost:8501`
 
 ## Available Scripts
 
