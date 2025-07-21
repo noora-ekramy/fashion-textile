@@ -1,0 +1,19 @@
+{
+  "name": "fashion-textile",
+  "version": "1.0.0",
+  "description": "Fashion Textile Streamlit Application for Testing",
+  "main": "app.py",
+  "scripts": {
+    "start": "streamlit run app.py",
+    "dev": "streamlit run app.py --server.runOnSave true"
+  },
+  "keywords": [
+    "streamlit",
+    "fashion",
+    "textile",
+    "web-app",
+    "testing"
+  ],
+  "author": "",
+  "license": "MIT"
+} 
